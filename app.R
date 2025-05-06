@@ -5,6 +5,7 @@ library(readxl)
 library(survminer)
 library(dplyr)
 library(plotly)
+library(shinyWidgets)
 
 datos<-readRDS("datos.rds")
 
@@ -33,11 +34,11 @@ ui <- navbarPage("Supervivencia TAVI",
         .input-section {
           height: 10vh;
           display: flex;
-          align-items: center;
-          justify-content: space-around;
+          align-items: center;           /* centra horizontalmente */
+          justify-content: center;
           margin: 0.5vh;
-          margin-left: 15vh;
-          margin-right: 15vh;
+          margin-left: 30vh;
+          margin-right: 30vh;
           padding: 0.5vh;
         }
         .plot-section {
@@ -68,13 +69,13 @@ ui <- navbarPage("Supervivencia TAVI",
      ),
     fluidPage(
       div(class = "input-section",
-          selectInput(inputId = 'PSAP', label = 'PSAP <30', choices = c("No", "Si")),
-          selectInput(inputId = 'EAP', label = 'EAP', choices = c("Si", "No")),
-          selectInput(inputId = 'Filtracion_glomerular', label = 'Filtración glomerular <30', choices = c("No","Si")),
-          selectInput(inputId = 'Hemoglobina', label = 'Hemoglobina <11.8', choices = c("No", "Si"))
+          materialSwitch(inputId = "PSAP", status = "success", label = 'PSAP <30'),
+          materialSwitch(inputId = "EAP", status = "danger", label = 'EAP'),
+          materialSwitch(inputId = "Filtracion_glomerular", status = "danger", label = 'Filtracion glomerular <30'),
+          materialSwitch(inputId = "Hemoglobina", status = "danger", label = 'Hemoglobina <11.8')
       ),
       div(class = "plot-section",
-          h3("Supervivencia base y supervivencia predicha"),
+          h3("Funciones supervivencia"),
           plotlyOutput("km_plot", height = "80%", width = "80%")
       ),
       div(class = "table-section",
@@ -102,11 +103,19 @@ ui <- navbarPage("Supervivencia TAVI",
 # Define server logic required to draw a histogram
 server <- function(input, output) {
   dato_prediccion <- reactive({
+    if(input$PSAP) PSAP = "Si"
+    else PSAP = "No"
+    if(input$EAP) EAP = "Si"
+    else EAP = "No"
+    if(input$Filtracion_glomerular) Filtracion_glomerular = "Si"
+    else Filtracion_glomerular = "No"
+    if(input$Hemoglobina) Hemoglobina = "Si"
+    else Hemoglobina = "No"
     data.frame(
-      PSAP=input$PSAP,
-      EAP = input$EAP,
-      Filtracion_glomerular = input$Filtracion_glomerular,
-      Hemoglobina= input$Hemoglobina
+      PSAP = PSAP,
+      EAP = EAP,
+      Filtracion_glomerular = Filtracion_glomerular,
+      Hemoglobina= Hemoglobina
     )
   })
   output$tabla_riesgos<-renderTable({
@@ -158,12 +167,10 @@ server <- function(input, output) {
     df_plot <- bind_rows(df_km, df_cox)
     plot <- ggplot(df_plot, aes(x = tiempo_meses, y = supervivencia, color = factor(grupo))) +
       geom_step(size = 1) +
-      scale_color_manual(values = c("blue", "red")) +
-      scale_linetype_manual(values = c("solid", "dashed")) +
       labs(
         x = "Tiempo (meses)",
         y = "Probabilidad de Supervivencia",
-        color = "Función supervivencia"
+        color = "Curvas"
       ) +
       scale_x_continuous(
         breaks = 0:12,  
