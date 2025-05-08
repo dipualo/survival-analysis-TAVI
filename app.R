@@ -6,6 +6,7 @@ library(survminer)
 library(dplyr)
 library(plotly)
 library(shinyWidgets)
+library(shinyjs)
 
 datos<-readRDS("datos.rds")
 
@@ -27,8 +28,23 @@ tabla_HR <- data.frame(
 tabla_HR$Variable<-c("PSAP <30", "EAP", "Filracion glomerular <30", "Hemoglobina <11.8")
 
 ui <- navbarPage("Supervivencia TAVI",
-
   tabPanel("Predicciones",
+      useShinyjs(),
+      tags$script(HTML("
+        function sendWidth() {
+          var w = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
+          Shiny.setInputValue('window_width', w, {priority: 'event'});
+        }
+    
+        // Ejecutar al cargar y al redimensionar
+        $(document).on('shiny:connected', function() {
+          sendWidth();
+        });
+    
+        $(window).resize(function() {
+          sendWidth();
+        });
+      ")),
      tags$head(
        tags$style(HTML("
         .input-section {
@@ -37,11 +53,11 @@ ui <- navbarPage("Supervivencia TAVI",
           align-items: center;           /* centra horizontalmente */
           justify-content: center;
           margin: 0.5vh;
-          margin-left: 30vh;
-          margin-right: 30vh;
           padding: 0.5vh;
+          widht: 80%;
         }
         .plot-section {
+
           display: flex;
           flex-direction: column;
           align-items: center;           /* centra horizontalmente */
@@ -58,25 +74,29 @@ ui <- navbarPage("Supervivencia TAVI",
           align-items: center;           /* centra horizontalmente */
           justify-content: center;
           height: 20vh;
-          overflow: auto;
           margin: 0.5vh;
           padding: 0.5vh;
         }
         select {
           width: 100%;
         }
+        @media (max-width: 900px) {
+          .input-section {
+            flex-direction: row;
+          }
+        }
       "))
      ),
     fluidPage(
       div(class = "input-section",
-          materialSwitch(inputId = "PSAP", status = "success", label = 'PSAP <30'),
-          materialSwitch(inputId = "EAP", status = "danger", label = 'EAP'),
+          materialSwitch(inputId = "PSAP", status = "success", label = 'Presión sistolica arterial pulmonar <30'),
+          materialSwitch(inputId = "EAP", status = "danger", label = 'Enfermedad arterial períferica'),
           materialSwitch(inputId = "Filtracion_glomerular", status = "danger", label = 'Filtracion glomerular <30'),
           materialSwitch(inputId = "Hemoglobina", status = "danger", label = 'Hemoglobina <11.8')
       ),
       div(class = "plot-section",
           h3("Funciones supervivencia"),
-          plotlyOutput("km_plot", height = "80%", width = "80%")
+          plotlyOutput("km_plot")
       ),
       div(class = "table-section",
           h3("Tablas riesgo de fallecimiento"),
@@ -134,17 +154,28 @@ server <- function(input, output) {
       surv_prob <- ajuste_mes_pred$surv
       base_prob <- ajuste_mes_datos$surv
       
-      pred_df <- data.frame(
-         1-surv_prob,
-         1-base_prob
-      )
-      pred_df_t <- as.data.frame(t(pred_df))
-      colnames(pred_df_t) <-as.character(round(times/30.44,0))
-      pred_df_t$Meses<-c("Riesgo esperado", "Riesgo base")
-      pred_df_t <- pred_df_t[, c("Meses", setdiff(names(pred_df_t), "Meses"))]
-      pred_df_t %>%
-        mutate(across(where(is.numeric), ~ formatC(., format = "f", digits = 3)))
-      pred_df_t
+      if (input$window_width < 900) {
+        pred_df <- data.frame(
+          as.character(round(times/30.44,0)),
+          1-surv_prob,
+          1-base_prob
+        )
+        colnames(pred_df)<-c("Meses","Riesgo esperado", "Riesgo base")
+        pred_df
+      } else {
+        pred_df <- data.frame(
+          1-surv_prob,
+          1-base_prob
+        )
+        pred_df_t <- as.data.frame(t(pred_df))
+        colnames(pred_df_t) <-as.character(round(times/30.44,0))
+        pred_df_t$Meses<-c("Riesgo esperado", "Riesgo base")
+        pred_df_t <- pred_df_t[, c("Meses", setdiff(names(pred_df_t), "Meses"))]
+        pred_df_t %>%
+          mutate(across(where(is.numeric), ~ formatC(., format = "f", digits = 3)))
+        pred_df_t
+      }
+
   })
   output$km_plot <- renderPlotly({
     cox_pred <- survfit(cox_model, newdata = dato_prediccion())
@@ -189,7 +220,7 @@ server <- function(input, output) {
           orientation = "h",   # horizontal
           x = 0.5,             # centrado
           xanchor = "center",
-          y = 1.1              # un poco arriba del gráfico
+          y = 1.2              # un poco arriba del gráfico
         ),
         yaxis = list(
           tickmode = "linear",
