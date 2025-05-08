@@ -5,6 +5,6 @@ account: dipual
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 14564175
-bundleId: 10239214
+bundleId:
 url: https://dipual.shinyapps.io/supervivencia_tavi/
 version: 1

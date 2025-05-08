@@ -66,7 +66,7 @@ ui <- fluidPage(
      tags$head(
        tags$style(HTML("
         .input-section {
-          min-height: 5vh;
+          min-height: 10vh;
           display: flex;
           align-items: center;           /* centra horizontalmente */
           justify-content: center;
@@ -77,7 +77,7 @@ ui <- fluidPage(
           flex-direction: column;
           align-items: center;           /* centra horizontalmente */
           justify-content: center;
-          height: 60vh;
+          height: 55vh;
           overflow: auto;
         }
         .table-section {
@@ -97,7 +97,7 @@ ui <- fluidPage(
         }
       "))
      ),
-     titlePanel(title = div("Variables predictoras de supervivencia TAVI", style = "text-align: center; margin-top: 5vh;margin-bottom 3vh;")),
+     titlePanel(title = div("Variables predictoras de supervivencia TAVI", style = "text-align: center; margin-top: 3vh;margin-bottom 6vh;")),
      fluidRow(
       div(class = "input-section",
           materialSwitch(inputId = "PSAP", status = "success", label = 'Presión sistolica arterial pulmonar <30'),
@@ -249,7 +249,7 @@ server <- function(input, output) {
         modeBarButtonsToRemove = c(
           "zoom2d", "pan2d", "select2d", "lasso2d",
           "zoomIn2d", "zoomOut2d", "hoverClosestCartesian",
-          "hoverCompareCartesian"
+          "hoverCompareCartesian","toImage"
         ),
         displaylogo = FALSE  # Oculta el logo de Plotly
       )
@@ -258,7 +258,7 @@ server <- function(input, output) {
 
       base_surv_en_t <- summary(cox_pred, times = 366)$surv
       valor_riesgo <- 1 - base_surv_en_t
-      print(valor_riesgo)
+
       plot<-ggplot(riesgo_percentiles_datos, aes(x = riesgo, y = percentil)) +
         geom_area(fill = "steelblue", size = 1.2) +
         geom_point(size = 2) +
@@ -274,7 +274,7 @@ server <- function(input, output) {
           modeBarButtonsToRemove = c(
             "zoom2d", "pan2d", "select2d", "lasso2d",
             "zoomIn2d", "zoomOut2d", "autoScale2d",
-            "resetScale2d", "hoverClosestCartesian",
+            "hoverClosestCartesian",
             "hoverCompareCartesian", "toImage"
           ),
           displaylogo = FALSE  # Oculta el logo de Plotly
