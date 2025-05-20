@@ -9,24 +9,12 @@ library(shinyWidgets)
 library(shinyjs)
 
 riesgo_percentiles_datos<-readRDS("riesgo_percentiles_datos.rds")
+riesgo_percentiles_datos <- riesgo_percentiles_datos[order(riesgo_percentiles_datos$percentil), ]
+riesgo_percentiles_datos<- rbind(data.frame(percentil = 0, riesgo = 0), riesgo_percentiles_datos)
+
 datos<-readRDS("datos.rds")
 
-
-cox_model <- coxph(Surv(survival_days,evento_muerte)~PSAP+EAP+Filtracion_glomerular+Hemoglobina,data=datos)
-HR <- exp(coef(cox_model))
-
-# Intervalos de confianza
-IC <- exp(confint(cox_model))
-
-# Combinar en una tabla
-tabla_HR <- data.frame(
-  Variable = names(HR),
-  HR = HR,
-  "IC inf" = IC[, 1],
-  "IC sup" = IC[, 2],
-  "pvalor log rank" = summary(cox_model)$coefficients[,5]
-)
-tabla_HR$Variable<-c("PSAP <30", "EAP", "Filracion glomerular <30", "Hemoglobina <11.8")
+cox_model <- coxph(Surv(survival_days,evento_muerte)~PSAP+EAP+Filtracion_glomerular+Hemoglobina,data=datos, ties="efron")
 
 ui <- fluidPage(
       useShinyjs(),
@@ -78,6 +66,9 @@ ui <- fluidPage(
           align-items: center;           /* centra horizontalmente */
           justify-content: center;
           height: 55vh;
+          width: 80%;
+          margin-left: auto;
+          margin-right: auto;
           overflow: auto;
         }
         .table-section {
@@ -93,6 +84,9 @@ ui <- fluidPage(
         @media (max-width: 768px) {
           .input-section {
             display: inline;
+          }
+          .plot-section{
+            width:100%
           }
         }
       "))
@@ -110,14 +104,14 @@ ui <- fluidPage(
       div(class = "plot-section",
           div(class = "input-section",  
               actionButton("km_button", "Funciones supervivencia", class = "btn btn-primary active"),
-              actionButton("cox_button", "Percentil riesgo en los datos", class = "btn btn-default")
+              actionButton("cox_button", "Percentil riesgo poblacional", class = "btn btn-default")
           ),
           plotlyOutput("km_plot", height = "100%", width = "95%")
       )
     ),
     fluidRow(
       div(class = "table-section",
-          h3("Tablas riesgo de fallecimiento"),
+          h3("Tabla probabilidad de supervivencia"),
           tableOutput("prediccion")
       )
     )
@@ -143,48 +137,45 @@ server <- function(input, output) {
       Hemoglobina= Hemoglobina
     )
   })
-  output$tabla_riesgos<-renderTable({
-    tabla_HR %>%
-      mutate(across(where(is.numeric), ~ formatC(., format = "f", digits = 4)))
-  })
+  
   output$prediccion<-renderTable({
+    
+    surv_fit <- survfit(cox_model, newdata = dato_prediccion())
+    km_fit <- survfit(Surv(survival_days, evento_muerte) ~ 1, data = datos) 
+    
+    tiempos_prediccion <- seq(0, 366, by = 30.44)  
+    ajuste_mes_pred <- summary(surv_fit, times = tiempos_prediccion)
+    ajuste_mes_datos<- summary(km_fit, times = tiempos_prediccion)
+    times <- ajuste_mes_pred$time
+    surv_prob <- ajuste_mes_pred$surv
+    base_prob <- ajuste_mes_datos$surv
+    
+    if (input$window_width < 768) {
+      pred_df <- data.frame(
+        as.character(round(times/30.44,0)),
+        surv_prob*100,
+        base_prob*100
+      )
+      colnames(pred_df)<-c("Meses","Supervivencia predicha %", "Supervivencia poblacional %")
+      pred_df[] <- lapply(pred_df, function(x) {
+        if (is.numeric(x)) formatC(x, format = "f", digits = 1) else x
+      })
+      pred_df
+    } else {
+      pred_df <- data.frame(
+        surv_prob*100,
+        base_prob*100
+      )
       
-      surv_fit <- survfit(cox_model, newdata = dato_prediccion())
-      km_fit <- survfit(Surv(survival_days, evento_muerte) ~ 1, data = datos) 
-      
-      tiempos_prediccion <- seq(0, 366, by = 30.44)  
-      ajuste_mes_pred <- summary(surv_fit, times = tiempos_prediccion)
-      ajuste_mes_datos<- summary(km_fit, times = tiempos_prediccion)
-      times <- ajuste_mes_pred$time
-      surv_prob <- ajuste_mes_pred$surv
-      base_prob <- ajuste_mes_datos$surv
-
-      if (input$window_width < 768) {
-        pred_df <- data.frame(
-          as.character(round(times/30.44,0)),
-          1-surv_prob,
-          1-base_prob
-        )
-        colnames(pred_df)<-c("Meses","Riesgo esperado", "Riesgo base")
-        pred_df[] <- lapply(pred_df, function(x) {
-          if (is.numeric(x)) formatC(x, format = "f", digits = 4) else x
-        })
-        pred_df
-      } else {
-        pred_df <- data.frame(
-          1-surv_prob,
-          1-base_prob
-        )
-
-        pred_df_t <- as.data.frame(t(pred_df))
-        colnames(pred_df_t) <-as.character(round(times/30.44,0))
-        pred_df_t$Meses<-c("Riesgo esperado", "Riesgo base")
-        pred_df_t <- pred_df_t[, c("Meses", setdiff(names(pred_df_t), "Meses"))]
-        pred_df_t[] <- lapply(pred_df_t, function(x) {
-          if (is.numeric(x)) formatC(x, format = "f", digits = 4) else x
-        })
-        pred_df_t
-      }
+      pred_df_t <- as.data.frame(t(pred_df))
+      colnames(pred_df_t) <-as.character(round(times/30.44,0))
+      pred_df_t$Meses<-c("Supervivencia predicha %", "Supervivencia poblacional %")
+      pred_df_t <- pred_df_t[, c("Meses", setdiff(names(pred_df_t), "Meses"))]
+      pred_df_t[] <- lapply(pred_df_t, function(x) {
+        if (is.numeric(x)) formatC(x, format = "f", digits = 1) else x
+      })
+      pred_df_t
+    }
   })
   output$km_plot <- renderPlotly({
     
@@ -196,7 +187,7 @@ server <- function(input, output) {
       df_km <- data.frame(
         tiempo_meses = km_fit$time / 30,
         supervivencia = km_fit$surv,
-        grupo = "Supervivencia base"
+        grupo = "Supervivencia poblacional"
       )
       
       # Cox en meses
@@ -217,7 +208,7 @@ server <- function(input, output) {
       labs(
         x = "Tiempo (meses)",
         y = "Probabilidad de Supervivencia",
-        color = "Curvas"
+        color = "Curvas K-M"
         ) +
       scale_x_continuous(
         breaks = 0:12,  
@@ -232,7 +223,6 @@ server <- function(input, output) {
       )
     ggplotly(plot, tooltip="text") %>%
       layout(
-        hoverifo = "x",
         hovermode="x unified",
         legend = list(
           orientation = "h",   # horizontal
@@ -256,20 +246,64 @@ server <- function(input, output) {
     }
     else{
 
-      base_surv_en_t <- summary(cox_pred, times = 366)$surv
-      valor_riesgo <- 1 - base_surv_en_t
-
-      plot<-ggplot(riesgo_percentiles_datos, aes(x = riesgo, y = percentil)) +
-        geom_area(fill = "steelblue", size = 1.2) +
-        geom_point(size = 2) +
-        geom_vline(xintercept = valor_riesgo, linetype = "dashed", color = "red", size = 1) +
+  # base_surv_en_t <- summary(cox_pred, times = 366)$surv
+  # valor_riesgo <- 1 - base_surv_en_t
+  # 
+  # percentil_riesgo <- approx(x = riesgo_percentiles_datos$riesgo , y =riesgo_percentiles_datos$percentil , xout = valor_riesgo)$y
+  # if(is.na(percentil_riesgo))
+  #   percentil_riesgo<-1
+  # 
+  # plot<-ggplot(riesgo_percentiles_datos, aes(x = percentil, y = riesgo)) +
+  #   geom_step(direction = "hv", color = "steelblue", size = 1) +
+  #   geom_point(size = 2) +
+  #   geom_vline(xintercept = percentil_riesgo, linetype = "dashed", color = "red", size = 1) +
+  #   labs(
+  #     x = "Percentil riesgo poblacional",
+  #     y = "Riesgo estimado",
+  #     title = "Riesgo estimado frente a su percentil en la población"
+  #   ) +
+  #   scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+  #   theme_minimal()+
+  #   theme(plot.title = element_text(hjust = 0.5, size=15, face = "bold"))
+  #   
+      riesgos <- predict(cox_model, type = "risk")
+      riesgo_ind <- predict(cox_model, newdata = dato_prediccion(), type = "risk")
+      percentil_ind <- ecdf(riesgos)(riesgo_ind) * 100
+      
+      # Crear data frame para ggplot
+      df_riesgos <- data.frame(riesgo = riesgos) %>%
+        mutate(percentil = percent_rank(riesgo) * 100) %>%  # Percentil empírico
+        arrange(percentil)
+      
+      # Plot con ggplot2
+      plot<-ggplot(df_riesgos, aes(x = percentil, y = riesgo)) +
+        geom_line(color = "steelblue", linewidth = 1) +
+        geom_vline(xintercept = percentil_ind, color = "red", linetype = "dashed", linewidth = 1) +
         labs(
-          x = "Riesgo estimado",
-          y = "Percentil"
+          title = "Riesgo relativo según percentil de la población",
+          x = "Percentil de riesgo (%)",
+          y = "Riesgo relativo (exp(Xβ))"
         ) +
-        scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
         theme_minimal()
-      ggplotly(plot) %>%
+      
+      g<-ggplotly(plot) %>%
+        layout(
+          hovermode="x unified",
+          legend = list(
+            orientation = "h",   # horizontal
+            x = 10,             # centrado
+            xanchor = "center",
+            y = 1.2              # un poco arriba del gráfico
+          ),
+          yaxis = list(
+            tickmode = "linear",
+            dtick = 1
+          ),
+          xaxis = list(
+            tickmode = "linear",
+            dtick = 10
+          )
+        ) %>%
         config(
           modeBarButtonsToRemove = c(
             "zoom2d", "pan2d", "select2d", "lasso2d",
@@ -279,6 +313,8 @@ server <- function(input, output) {
           ),
           displaylogo = FALSE  # Oculta el logo de Plotly
         )
+        g<-style(g, hoverinfo = "none", traces = 2)
+        g
     }
   })
 }
