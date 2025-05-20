@@ -58,6 +58,7 @@ ui <- fluidPage(
           display: flex;
           align-items: center;           /* centra horizontalmente */
           justify-content: center;
+          gap: 10px; 
           overflow: auto;
         }
         .plot-section {
@@ -83,7 +84,9 @@ ui <- fluidPage(
         }
         @media (max-width: 768px) {
           .input-section {
-            display: inline;
+              display: flex;
+              flex-direction: column; /* Pone los elementos en columna */
+              margin:5px;
           }
           .plot-section{
             width:100%
@@ -91,10 +94,10 @@ ui <- fluidPage(
         }
       "))
      ),
-     titlePanel(title = div("Variables predictoras de supervivencia TAVI", style = "text-align: center; margin-top: 3vh;margin-bottom 6vh;")),
+     titlePanel(title = div("Variables predictoras de supervivencia TAVI", style = "text-align: center; margin-top: 3vh;margin-bottom 6vh; ")),
      fluidRow(
       div(class = "input-section",
-          materialSwitch(inputId = "PSAP", status = "success", label = 'Presión sistolica arterial pulmonar <30'),
+          materialSwitch(inputId = "PSAP", status = "danger", label = 'Presión sistolica arterial pulmonar >=30'),
           materialSwitch(inputId = "EAP", status = "danger", label = 'Enfermedad arterial períferica'),
           materialSwitch(inputId = "Filtracion_glomerular", status = "danger", label = 'Filtracion glomerular <30'),
           materialSwitch(inputId = "Hemoglobina", status = "danger", label = 'Hemoglobina <11.8')
@@ -245,27 +248,7 @@ server <- function(input, output) {
       )
     }
     else{
-
-  # base_surv_en_t <- summary(cox_pred, times = 366)$surv
-  # valor_riesgo <- 1 - base_surv_en_t
-  # 
-  # percentil_riesgo <- approx(x = riesgo_percentiles_datos$riesgo , y =riesgo_percentiles_datos$percentil , xout = valor_riesgo)$y
-  # if(is.na(percentil_riesgo))
-  #   percentil_riesgo<-1
-  # 
-  # plot<-ggplot(riesgo_percentiles_datos, aes(x = percentil, y = riesgo)) +
-  #   geom_step(direction = "hv", color = "steelblue", size = 1) +
-  #   geom_point(size = 2) +
-  #   geom_vline(xintercept = percentil_riesgo, linetype = "dashed", color = "red", size = 1) +
-  #   labs(
-  #     x = "Percentil riesgo poblacional",
-  #     y = "Riesgo estimado",
-  #     title = "Riesgo estimado frente a su percentil en la población"
-  #   ) +
-  #   scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
-  #   theme_minimal()+
-  #   theme(plot.title = element_text(hjust = 0.5, size=15, face = "bold"))
-  #   
+      
       riesgos <- predict(cox_model, type = "risk")
       riesgo_ind <- predict(cox_model, newdata = dato_prediccion(), type = "risk")
       percentil_ind <- ecdf(riesgos)(riesgo_ind) * 100
@@ -277,14 +260,18 @@ server <- function(input, output) {
       
       # Plot con ggplot2
       plot<-ggplot(df_riesgos, aes(x = percentil, y = riesgo)) +
-        geom_line(color = "steelblue", linewidth = 1) +
+        geom_step(direction = "hv", color = "steelblue", size = 1) +
         geom_vline(xintercept = percentil_ind, color = "red", linetype = "dashed", linewidth = 1) +
         labs(
-          title = "Riesgo relativo según percentil de la población",
+          title = "Riesgo relativo según percentil de riesgo de la población",
           x = "Percentil de riesgo (%)",
           y = "Riesgo relativo (exp(Xβ))"
         ) +
-        theme_minimal()
+        theme_minimal()+
+        theme(
+          plot.title = element_text(hjust = 0.5, size = 18),  
+        )
+       
       
       g<-ggplotly(plot) %>%
         layout(
