@@ -20,6 +20,7 @@ colnames(riesgo_percentiles_datos)<-c("percentil", "riesgo")
 datos<-readRDS("datos.rds")
 
 cox_model <- coxph(Surv(survival_days,evento_muerte)~PSAP+EAP+Filtracion_glomerular+Hemoglobina,data=datos, ties="efron")
+print(summary(cox_model))
 
 ui <- fluidPage(
       useShinyjs(),
@@ -110,7 +111,7 @@ ui <- fluidPage(
           materialSwitch(inputId = "PSAP", status = "danger", label = 'Presión sistolica arterial pulmonar >=30'),
           materialSwitch(inputId = "EAP", status = "danger", label = 'Enfermedad arterial períferica'),
           materialSwitch(inputId = "Filtracion_glomerular", status = "danger", label = 'Filtracion glomerular <30'),
-          materialSwitch(inputId = "Hemoglobina", status = "danger", label = 'Hemoglobina <11.8')
+          materialSwitch(inputId = "Hemoglobina", status = "danger", label = 'Hemoglobina <11,8')
       )
     ),
     fluidRow(
@@ -150,46 +151,59 @@ server <- function(input, output) {
       Hemoglobina= Hemoglobina
     )
   })
-  
-  output$prediccion<-renderTable({
+  output$prediccion <- renderTable({
     
     surv_fit <- survfit(cox_model, newdata = dato_prediccion())
     km_fit <- survfit(Surv(survival_days, evento_muerte) ~ 1, data = datos) 
     
     tiempos_prediccion <- seq(0, 366, by = 30.44)  
     ajuste_mes_pred <- summary(surv_fit, times = tiempos_prediccion)
-    ajuste_mes_datos<- summary(km_fit, times = tiempos_prediccion)
+    ajuste_mes_datos <- summary(km_fit, times = tiempos_prediccion)
     times <- ajuste_mes_pred$time
     surv_prob <- ajuste_mes_pred$surv
     base_prob <- ajuste_mes_datos$surv
     
     if (input$window_width < 768) {
       pred_df <- data.frame(
-        as.character(round(times/30.44,0)),
-        surv_prob*100,
-        base_prob*100
+        as.character(round(times/30.44, 0)),
+        surv_prob * 100,
+        base_prob * 100
       )
-      colnames(pred_df)<-c("Meses","Supervivencia predicha %", "Supervivencia muestra %")
+      colnames(pred_df) <- c("Meses", "Supervivencia predicha %", "Supervivencia muestra %")
+      
       pred_df[] <- lapply(pred_df, function(x) {
-        if (is.numeric(x)) formatC(x, format = "f", digits = 1) else x
+        if (is.numeric(x)) {
+          # Formatear número con 1 decimal, luego reemplazar punto por coma
+          formatted <- formatC(x, format = "f", digits = 1)
+          gsub("\\.", ",", formatted)
+        } else {
+          x
+        }
       })
       pred_df
     } else {
       pred_df <- data.frame(
-        surv_prob*100,
-        base_prob*100
+        surv_prob * 100,
+        base_prob * 100
       )
       
       pred_df_t <- as.data.frame(t(pred_df))
-      colnames(pred_df_t) <-as.character(round(times/30.44,0))
-      pred_df_t$Meses<-c("Supervivencia predicha %", "Supervivencia muestra %")
+      colnames(pred_df_t) <- as.character(round(times / 30.44, 0))
+      pred_df_t$Meses <- c("Supervivencia predicha %", "Supervivencia muestra %")
       pred_df_t <- pred_df_t[, c("Meses", setdiff(names(pred_df_t), "Meses"))]
+      
       pred_df_t[] <- lapply(pred_df_t, function(x) {
-        if (is.numeric(x)) formatC(x, format = "f", digits = 1) else x
+        if (is.numeric(x)) {
+          formatted <- formatC(x, format = "f", digits = 1)
+          gsub("\\.", ",", formatted)
+        } else {
+          x
+        }
       })
       pred_df_t
     }
   })
+  
   output$km_plot <- renderPlotly({
     
     cox_pred <- survfit(cox_model, newdata = dato_prediccion())
@@ -212,10 +226,18 @@ server <- function(input, output) {
       
       # Unir las dos curvas
       df_plot <- bind_rows(df_km, df_cox)
+      df_plot <- df_plot %>% 
+        mutate(
+          # Formatear texto para tooltip con coma decimal
+          tiempo_meses_text = gsub("\\.", ",", formatC(tiempo_meses, format = "f", digits = 1)),
+          supervivencia_text = gsub("\\.", ",", formatC(supervivencia, format = "f", digits = 3)),
+          tooltip_text = paste0("Tiempo (meses): ", tiempo_meses_text,
+                                "\nProbabilidad supervivencia: ", supervivencia_text)
+        )
+      
       plot <- ggplot(df_plot, aes(x = tiempo_meses, y = supervivencia,  color = grupo,
-                                  group = grupo,
-                                  text = paste0("Tiempo(meses): ", round(tiempo_meses, 1),
-                                                "\nProbabilidad supervivencia: ", round(supervivencia, 3)))
+                                  group = grupo, 
+                                  text = tooltip_text)
                      ) +
         geom_step(aes(
           color = grupo,
@@ -233,7 +255,7 @@ server <- function(input, output) {
         ) +
       scale_x_continuous(
         breaks = 0:12,  
-        limits = c(0, 12)  
+        limits = c(0, 12) 
       )+
       ylim(0.5,1)+
       theme_minimal()+
@@ -242,28 +264,43 @@ server <- function(input, output) {
         legend.text = element_text(size = 12),
         legend.position = "top"
       )
-    ggplotly(plot, tooltip="text") %>%
-      layout(
-        hovermode="x unified",
-        legend = list(
-          orientation = "h",   # horizontal
-          x = 0.5,             # centrado
-          xanchor = "center",
-          y = 1.2              # un poco arriba del gráfico
-        ),
-        yaxis = list(
-          tickmode = "linear",
-          dtick = 0.05
+      # Crear etiquetas para eje X (0 a 12 con coma decimal)
+      x_vals <- 0:12
+      x_labels <- gsub("\\.", ",", format(x_vals, decimal.mark = ".", trim = TRUE))
+      
+      # Crear etiquetas para eje Y (de 0.5 a 1 con paso 0.05)
+      y_vals <- seq(0.5, 1, by = 0.05)
+      y_labels <- gsub("\\.", ",", format(y_vals, decimal.mark = ".", trim = TRUE))
+      
+      ggplotly(plot, tooltip="text") %>%
+        layout(
+          hovermode = "x unified",
+          legend = list(
+            orientation = "h",
+            x = 0.5,
+            xanchor = "center",
+            y = 1.2
+          ),
+          xaxis = list(
+            tickmode = "array",
+            tickvals = x_vals,
+            ticktext = x_labels
+          ),
+          yaxis = list(
+            tickmode = "array",
+            tickvals = y_vals,
+            ticktext = y_labels
+          )
+        ) %>%
+        config(
+          modeBarButtonsToRemove = c(
+            "zoom2d", "pan2d", "select2d", "lasso2d",
+            "zoomIn2d", "zoomOut2d", "hoverClosestCartesian",
+            "hoverCompareCartesian", "toImage"
+          ),
+          displaylogo = FALSE
         )
-      ) %>%
-      config(
-        modeBarButtonsToRemove = c(
-          "zoom2d", "pan2d", "select2d", "lasso2d",
-          "zoomIn2d", "zoomOut2d", "hoverClosestCartesian",
-          "hoverCompareCartesian","toImage"
-        ),
-        displaylogo = FALSE  # Oculta el logo de Plotly
-      )
+      
     }
     else{
       
@@ -276,31 +313,49 @@ server <- function(input, output) {
       else{
         percentil_riesgo<-1
       }
-      plot<-ggplot(riesgo_percentiles_datos, aes(x = percentil, y = riesgo)) +
-        geom_step(direction = "hv", color = "steelblue", size = 1) +
-        geom_point(size = 1) +
+      riesgo_percentiles_datos <- riesgo_percentiles_datos %>% 
+        mutate(
+          percentil_text = gsub("\\.", ",", formatC(percentil, format = "f", digits = 3)),
+          riesgo_text = gsub("\\.", ",", formatC(riesgo, format = "f", digits = 3)),
+          tooltip_text = paste0("Percentil: ", percentil_text, 
+                                "\nRiesgo: ", riesgo_text)
+        )
+      plot <- ggplot(riesgo_percentiles_datos, aes(x = percentil, y = riesgo)) +
+        geom_step(direction = "hv", color = "steelblue", size = 1) +  # línea sin text
+        geom_point(aes(text = tooltip_text), size = 1, color = "black") +  # puntos con tooltip
         geom_vline(xintercept = percentil_riesgo-0.0001, linetype = "dashed", color = "red", size = 1) +
         labs(
           x = "Percentil riesgo fallecimiento muestra",
           y = "Riesgo fallecimiento predicho",
           title = "Riesgo predicho frente a su percentil en la población"
         ) +
-        annotate("text", x = percentil_riesgo-0.05, y = 0.3, label = paste0("Percentil ",round(percentil_riesgo*100,1),"%"), color = "red")+
+        annotate("text", x = percentil_riesgo-0.05, y = 0.3,
+                 label = paste0("Percentil ", gsub("\\.", ",", formatC(percentil_riesgo*100, digits=2)), "%"), color = "red") +
         scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
-        theme_minimal()+
+        theme_minimal() +
         theme(plot.title = element_text(hjust = 0.5, size=15, face = "bold"))
-
       
-      ggplotly(plot) %>%
+      
+      # Etiquetas personalizadas eje x (percentiles de 0 a 1, paso 0.1)
+      x_vals <- seq(0, 1, by = 0.1)
+      x_labels <- paste0(gsub("\\.", ",", format(x_vals * 100, trim = TRUE)), "%")
+      
+      # Etiquetas eje y (riesgo, de 0 a 1 con paso 0.05)
+      y_vals <- seq(0, 1, by = 0.05)
+      y_labels <- gsub("\\.", ",", format(y_vals, trim = TRUE))
+      
+      ggplotly(plot, tooltip = "text") %>%
         layout(
-          hovermode="x unified",
-          yaxis = list(
-            tickmode = "linear",
-            dtick = 0.05
-          ),
+          hovermode = "closes",
           xaxis = list(
-            tickmode = "linear",
-            dtick = 0.1
+            tickmode = "array",
+            tickvals = x_vals,
+            ticktext = x_labels
+          ),
+          yaxis = list(
+            tickmode = "array",
+            tickvals = y_vals,
+            ticktext = y_labels
           )
         ) %>%
         config(
@@ -310,8 +365,9 @@ server <- function(input, output) {
             "hoverClosestCartesian",
             "hoverCompareCartesian", "toImage"
           ),
-          displaylogo = FALSE  # Oculta el logo de Plotly
+          displaylogo = FALSE
         )
+      
 
     }
   })
