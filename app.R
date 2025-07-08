@@ -1,184 +1,149 @@
-library(shiny)
-library(survival)
-library(data.table)
-library(readxl)
-library(survminer)
-library(dplyr)
-library(plotly)
-library(shinyWidgets)
-library(shinyjs)
+# Load required libraries
+library(shiny)            # Web app framework
+library(survival)         # Survival analysis tools
+library(data.table)       # Fast data manipulation
+library(readxl)           # Read Excel files
+library(survminer)        # Enhanced survival plots
+library(dplyr)            # Data manipulation
+library(plotly)           # Interactive plots
+library(shinyWidgets)     # Additional UI widgets
+library(shinyjs)          # JavaScript integration for Shiny
 
-riesgo_percentiles_datos<-readRDS("riesgo_percentiles_datos.rds")
-riesgo_percentiles_datos <- riesgo_percentiles_datos[order(riesgo_percentiles_datos$percentil), ]
+# Load pre-calculated percentiles data for risk
+risk_and_percentile_in_data <- readRDS("risk_and_percentile_in_data.rds")
+risk_and_percentile_in_data <- risk_and_percentile_in_data[order(risk_and_percentile_in_data$percentil), ]
 
-# Añado el percentil 0 y el valor del percentil 1 que es el ultimo valor del riesg
-riesgo_percentiles_datos<-as.data.frame(cbind(c(0,round(riesgo_percentiles_datos$percentil,digits=4))
-                                              , c(round(riesgo_percentiles_datos$riesgo,digits=4),0.4433)))
-colnames(riesgo_percentiles_datos)<-c("percentil", "riesgo")
+# Add percentile 0 and last risk value (hardcoded 0.4433 as percentile 1 value)
+risk_and_percentile_in_data <- as.data.frame(cbind(
+  c(0, round(risk_and_percentile_in_data$percentil, digits=4)),
+  c(round(risk_and_percentile_in_data$riesgo, digits=4), 0.4433)
+))
+colnames(risk_and_percentile_in_data) <- c("percentil", "riesgo")
 
+# Load patient data
+data <- readRDS("data.rds")
 
-datos<-readRDS("datos.rds")
+# Fit Cox proportional hazards model with predictors
+cox_model <- coxph(Surv(survival_days, evento_muerte) ~ PSAP + EAP + Filtracion_glomerular + Hemoglobina,
+                   data = data, ties = "efron")
 
-cox_model <- coxph(Surv(survival_days,evento_muerte)~PSAP+EAP+Filtracion_glomerular+Hemoglobina,data=datos, ties="efron")
-print(summary(cox_model))
-
+# Define UI
 ui <- fluidPage(
-      useShinyjs(),
-      tags$script(HTML("
-        function sendWidth() {
-          var w = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
-          Shiny.setInputValue('window_width', w, {priority: 'event'});
-        }
-    
-        // Ejecutar al cargar y al redimensionar
-        $(document).on('shiny:connected', function() {
-          sendWidth();
-        });
-    
-        $(window).resize(function() {
-          sendWidth();
-        });  
-        $(document).on('shiny:connected', function() {
-          // Inicializar con Kaplan-Meier como activo por defecto
-          $('#km_button').addClass('active btn-primary').removeClass('btn-default');
-          $('#cox_button').removeClass('active btn-primary').addClass('btn-default');
-          Shiny.setInputValue('plot_type', 'Funciones supervivencia', {priority: 'event'});
-        });
-      
-        $(document).on('click', '#km_button', function() {
-          Shiny.setInputValue('plot_type', 'Funciones supervivencia', {priority: 'event'});
-          $('#km_button').addClass('active btn-primary').removeClass('btn-default');
-          $('#cox_button').removeClass('active btn-primary').addClass('btn-default');
-        });
-      
-        $(document).on('click', '#cox_button', function() {
-          Shiny.setInputValue('plot_type', 'Cox', {priority: 'event'});
-          $('#cox_button').addClass('active btn-primary').removeClass('btn-default');
-          $('#km_button').removeClass('active btn-primary').addClass('btn-default');
-        });
-      ")),
-     tags$head(
-       tags$title("Supervivencia TAVI"),
-       tags$style(HTML("
-        .input-section {
-          min-height: 8vh;
-          display: flex;
-          align-items: center;           /* centra horizontalmente */
-          justify-content: center;
-          gap: 6px; 
-          overflow: auto;
-        }
-        .plot-section {
-          display: flex;
-          flex-direction: column;
-          align-items: center;           /* centra horizontalmente */
-          justify-content: center;
-          height: 58vh;
-          width: 80%;
-          margin-left: auto;
-          margin-right: auto;
-          overflow: auto;
-        }
-        .table-section {
-          display: flex;
-          flex-direction: column;
-          align-items: center;           /* centra horizontalmente */
-          justify-content: center;
-          min-height: 10vh;
-        }
-        select {
-          width: 100%;
-        }
-        @media (max-width: 768px) {
-          .input-section {
-              display: flex;
-              flex-direction: column; /* Pone los elementos en columna */
-              margin:0px;
-              padding: 5px;
-              gap: 0px;
-          }
-          .plot-section{
-            height: initial;
-            min-height: 50hv;
-            width:100%
-          }
-        }
-      "))
-     ),
-     titlePanel(title = div("Variables predictoras de supervivencia TAVI", style = "text-align: center; margin-top: 2vh;margin-bottom 2vh; ")),
-     fluidRow(
-      div(class = "input-section",
-          materialSwitch(inputId = "PSAP", status = "danger", label = 'Presión sistolica arterial pulmonar >=30'),
-          materialSwitch(inputId = "EAP", status = "danger", label = 'Enfermedad arterial períferica'),
-          materialSwitch(inputId = "Filtracion_glomerular", status = "danger", label = 'Filtracion glomerular <30'),
-          materialSwitch(inputId = "Hemoglobina", status = "danger", label = 'Hemoglobina <11,8')
-      )
-    ),
-    fluidRow(
-      div(class = "plot-section",
-          div(class = "input-section",  
-              actionButton("km_button", "Funciones supervivencia", class = "btn btn-primary active"),
-              actionButton("cox_button", "Percentil riesgo muestral", class = "btn btn-default")
-          ),
-          plotlyOutput("km_plot", height = "100%", width = "95%")
-      )
-    ),
-    fluidRow(
-      div(class = "table-section",
-          h3("Tabla probabilidad de supervivencia"),
-          tableOutput("prediccion")
-      )
+  useShinyjs(),  # Enable shinyjs functions
+  
+  # JavaScript: detect window width and handle button toggling for plot type
+  tags$script(HTML("
+    function sendWidth() {
+      var w = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
+      Shiny.setInputValue('window_width', w, {priority: 'event'});
+    }
+
+    $(document).on('shiny:connected', function() {
+      sendWidth();
+      // Set default active button to Kaplan-Meier
+      $('#km_button').addClass('active btn-primary').removeClass('btn-default');
+      $('#cox_button').removeClass('active btn-primary').addClass('btn-default');
+      Shiny.setInputValue('plot_type', 'Funciones supervivencia', {priority: 'event'});
+    });
+
+    $(window).resize(function() { sendWidth(); });
+
+    $(document).on('click', '#km_button', function() {
+      Shiny.setInputValue('plot_type', 'Funciones supervivencia', {priority: 'event'});
+      $('#km_button').addClass('active btn-primary').removeClass('btn-default');
+      $('#cox_button').removeClass('active btn-primary').addClass('btn-default');
+    });
+
+    $(document).on('click', '#cox_button', function() {
+      Shiny.setInputValue('plot_type', 'Cox', {priority: 'event'});
+      $('#cox_button').addClass('active btn-primary').removeClass('btn-default');
+      $('#km_button').removeClass('active btn-primary').addClass('btn-default');
+    });
+  ")),
+  
+  # Page title and custom CSS
+  tags$head(
+    tags$title("TAVI Survival"),
+    tags$style(HTML("
+      .input-section { min-height: 8vh; display: flex; align-items: center; justify-content: center; gap: 6px; overflow: auto; }
+      .plot-section { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 58vh; width: 80%; margin: auto; overflow: auto; }
+      .table-section { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 10vh; }
+      @media (max-width: 768px) {
+        .input-section { flex-direction: column; padding: 5px; gap: 0px; }
+        .plot-section { height: initial; min-height: 50vh; width: 100%; }
+      }
+    "))
+  ),
+  
+  # Main UI layout
+  titlePanel(div("Predictive Variables for TAVI Survival", style = "text-align: center; margin-top: 2vh;")),
+  
+  fluidRow(
+    div(class = "input-section",
+        materialSwitch(inputId = "PSAP", status = "danger", label = 'Pulmonary systolic pressure >=30'),
+        materialSwitch(inputId = "EAP", status = "danger", label = 'Peripheral artery disease'),
+        materialSwitch(inputId = "Filtracion_glomerular", status = "danger", label = 'Glomerular filtration <30'),
+        materialSwitch(inputId = "Hemoglobina", status = "danger", label = 'Hemoglobin <11.8')
+    )
+  ),
+  
+  fluidRow(
+    div(class = "plot-section",
+        div(class = "input-section",  
+            actionButton("km_button", "Survival Functions", class = "btn btn-primary active"),
+            actionButton("cox_button", "Sample Risk Percentile", class = "btn btn-default")
+        ),
+        plotlyOutput("km_plot", height = "100%", width = "95%")
+    )
+  ),
+  
+  fluidRow(
+    div(class = "table-section",
+        h3("Predicted Survival Table"),
+        tableOutput("prediccion")
     )
   )
+)
 
-
-
-# Define server logic required to draw a histogram
+# Server logic
 server <- function(input, output) {
+  
+  # Reactive block: create prediction data based on user inputs
   dato_prediccion <- reactive({
-    if(input$PSAP) PSAP = "Si"
-    else PSAP = "No"
-    if(input$EAP) EAP = "Si"
-    else EAP = "No"
-    if(input$Filtracion_glomerular) Filtracion_glomerular = "Si"
-    else Filtracion_glomerular = "No"
-    if(input$Hemoglobina) Hemoglobina = "Si"
-    else Hemoglobina = "No"
     data.frame(
-      PSAP = PSAP,
-      EAP = EAP,
-      Filtracion_glomerular = Filtracion_glomerular,
-      Hemoglobina= Hemoglobina
+      PSAP = ifelse(input$PSAP, "Si", "No"),
+      EAP = ifelse(input$EAP, "Si", "No"),
+      Filtracion_glomerular = ifelse(input$Filtracion_glomerular, "Si", "No"),
+      Hemoglobina = ifelse(input$Hemoglobina, "Si", "No")
     )
   })
+  
+  # Render survival probability table
   output$prediccion <- renderTable({
-    
     surv_fit <- survfit(cox_model, newdata = dato_prediccion())
-    km_fit <- survfit(Surv(survival_days, evento_muerte) ~ 1, data = datos) 
+    km_fit <- survfit(Surv(survival_days, evento_muerte) ~ 1, data = data)
     
-    tiempos_prediccion <- seq(0, 366, by = 30.44)  
+    tiempos_prediccion <- seq(0, 366, by = 30.44)  # Monthly timepoints
     ajuste_mes_pred <- summary(surv_fit, times = tiempos_prediccion)
-    ajuste_mes_datos <- summary(km_fit, times = tiempos_prediccion)
+    ajuste_mes_data <- summary(km_fit, times = tiempos_prediccion)
+    
     times <- ajuste_mes_pred$time
     surv_prob <- ajuste_mes_pred$surv
-    base_prob <- ajuste_mes_datos$surv
+    base_prob <- ajuste_mes_data$surv
     
+    # Adjust table format for mobile vs desktop
     if (input$window_width < 768) {
       pred_df <- data.frame(
         as.character(round(times/30.44, 0)),
         surv_prob * 100,
         base_prob * 100
       )
-      colnames(pred_df) <- c("Meses", "Supervivencia predicha %", "Supervivencia muestra %")
+      colnames(pred_df) <- c("Months", "Predicted Survival %", "Sample Survival %")
       
       pred_df[] <- lapply(pred_df, function(x) {
         if (is.numeric(x)) {
-          # Formatear número con 1 decimal, luego reemplazar punto por coma
           formatted <- formatC(x, format = "f", digits = 1)
-          gsub("\\.", ",", formatted)
-        } else {
-          x
-        }
+        } else x
       })
       pred_df
     } else {
@@ -186,92 +151,54 @@ server <- function(input, output) {
         surv_prob * 100,
         base_prob * 100
       )
-      
       pred_df_t <- as.data.frame(t(pred_df))
       colnames(pred_df_t) <- as.character(round(times / 30.44, 0))
-      pred_df_t$Meses <- c("Supervivencia predicha %", "Supervivencia muestra %")
-      pred_df_t <- pred_df_t[, c("Meses", setdiff(names(pred_df_t), "Meses"))]
-      
-      pred_df_t[] <- lapply(pred_df_t, function(x) {
-        if (is.numeric(x)) {
-          formatted <- formatC(x, format = "f", digits = 1)
-          gsub("\\.", ",", formatted)
-        } else {
-          x
-        }
-      })
+      pred_df_t$Months <- c("Predicted Survival %", "Sample Survival %")
+      pred_df_t <- pred_df_t[, c("Months", setdiff(names(pred_df_t), "Months"))]
       pred_df_t
     }
   })
   
+  # Render survival or risk percentile plot
   output$km_plot <- renderPlotly({
-    
     cox_pred <- survfit(cox_model, newdata = dato_prediccion())
     
-    if(input$plot_type == "Funciones supervivencia") {
-      km_fit <- survfit(Surv(survival_days, evento_muerte) ~ 1, data = datos) 
-      # Kaplan-Meier en meses
+    if (input$plot_type == "Funciones supervivencia") {
+      # Kaplan-Meier vs. Cox plot
+      km_fit <- survfit(Surv(survival_days, evento_muerte) ~ 1, data = data)
       df_km <- data.frame(
         tiempo_meses = km_fit$time / 30,
         supervivencia = km_fit$surv,
-        grupo = "Supervivencia muestra"
+        group = "Sample Survival"
       )
-      
-      # Cox en meses
       df_cox <- data.frame(
         tiempo_meses = cox_pred$time / 30,
         supervivencia = cox_pred$surv,
-        grupo = "Supervivencia predicha"
+        group = "Predicted Survival"
       )
-      
-      # Unir las dos curvas
       df_plot <- bind_rows(df_km, df_cox)
-      df_plot <- df_plot %>% 
+      df_plot <- df_plot %>%
         mutate(
-          # Formatear texto para tooltip con coma decimal
           tiempo_meses_text = gsub("\\.", ",", formatC(tiempo_meses, format = "f", digits = 1)),
           supervivencia_text = gsub("\\.", ",", formatC(supervivencia, format = "f", digits = 3)),
-          tooltip_text = paste0("Tiempo (meses): ", tiempo_meses_text,
-                                "\nProbabilidad supervivencia: ", supervivencia_text)
+          tooltip_text = paste0("Time (months): ", tiempo_meses_text, "\nSurvival Probability: ", supervivencia_text)
         )
       
-      plot <- ggplot(df_plot, aes(x = tiempo_meses, y = supervivencia,  color = grupo,
-                                  group = grupo, 
-                                  text = tooltip_text)
-                     ) +
-        geom_step(aes(
-          color = grupo,
-          linetype = grupo,
-          alpha = grupo,
-          size = grupo
-        )) +
-        scale_linetype_manual(name = "Curvas K-M",values = c("Supervivencia muestra" = "dashed", "Supervivencia predicha" = "solid")) +
-        scale_alpha_manual(name = "Curvas K-M",values = c("Supervivencia muestra" = 0.4, "Supervivencia predicha" = 1)) +
-        scale_size_manual(name = "Curvas K-M",values = c("Supervivencia muestra" = 0.7, "Supervivencia predicha" = 1.2)) +
-        scale_color_manual(name = "Curvas K-M",values = c("Supervivencia muestra" = "gray40", "Supervivencia predicha" = "steelblue"))+
-      labs(
-        x = "Tiempo (meses)",
-        y = "Probabilidad de Supervivencia"
-        ) +
-      scale_x_continuous(
-        breaks = 0:12,  
-        limits = c(0, 12) 
-      )+
-      ylim(0.5,1)+
-      theme_minimal()+
-      theme(
-        legend.title = element_text(size = 16),
-        legend.text = element_text(size = 12),
-        legend.position = "top"
-      )
-      # Crear etiquetas para eje X (0 a 12 con coma decimal)
-      x_vals <- 0:12
-      x_labels <- gsub("\\.", ",", format(x_vals, decimal.mark = ".", trim = TRUE))
-      
-      # Crear etiquetas para eje Y (de 0.5 a 1 con paso 0.05)
-      y_vals <- seq(0.5, 1, by = 0.05)
-      y_labels <- gsub("\\.", ",", format(y_vals, decimal.mark = ".", trim = TRUE))
-      
+      plot <- ggplot(df_plot, aes(x = tiempo_meses, y = supervivencia, color = group, group = group, text = tooltip_text)) +
+        geom_step(aes(linetype = group, alpha = group, size = group)) +
+        scale_linetype_manual(name = "K-M curves",values = c("Sample Survival" = "dashed", "Predicted Survival" = "solid")) +
+        scale_alpha_manual(name = "K-M curves", values = c("Sample Survival" = 0.4, "Predicted Survival" = 1)) +
+        scale_size_manual(name = "K-M curves",values = c("Sample Survival" = 0.7, "Predicted Survival" = 1.2)) +
+        scale_color_manual(name = "K-M curves",values = c("Sample Survival" = "gray40", "Predicted Survival" = "steelblue")) +
+        labs(x = "Time (months)", y = "Survival Probability") +
+        scale_x_continuous(breaks = 0:12, limits = c(0, 12)) +
+        ylim(0.5, 1) +
+        theme_minimal() +
+        theme(
+          legend.title = element_text(size = 16),
+          legend.text = element_text(size = 12),
+          legend.position = "top"
+        )
       ggplotly(plot, tooltip="text") %>%
         layout(
           hovermode = "x unified",
@@ -280,16 +207,6 @@ server <- function(input, output) {
             x = 0.5,
             xanchor = "center",
             y = 1.2
-          ),
-          xaxis = list(
-            tickmode = "array",
-            tickvals = x_vals,
-            ticktext = x_labels
-          ),
-          yaxis = list(
-            tickmode = "array",
-            tickvals = y_vals,
-            ticktext = y_labels
           )
         ) %>%
         config(
@@ -300,64 +217,34 @@ server <- function(input, output) {
           ),
           displaylogo = FALSE
         )
-      
-    }
-    else{
-      
+    } else {
+      # Risk percentile plot
       base_surv_en_t <- summary(cox_pred, times = 365)$surv
-      valor_riesgo <- round(1 - base_surv_en_t,4)
-      percentil_riesgo <- approx(x = riesgo_percentiles_datos$riesgo , y =riesgo_percentiles_datos$percentil , xout = valor_riesgo)$y
-      percentil_riesgo<-round(percentil_riesgo,4)
-      if(percentil_riesgo<0.996)
-        percentil_riesgo <- riesgo_percentiles_datos$percentil[which(riesgo_percentiles_datos$percentil==percentil_riesgo)+1]
-      else{
-        percentil_riesgo<-1
-      }
-      riesgo_percentiles_datos <- riesgo_percentiles_datos %>% 
-        mutate(
-          percentil_text = gsub("\\.", ",", formatC(percentil, format = "f", digits = 3)),
-          riesgo_text = gsub("\\.", ",", formatC(riesgo, format = "f", digits = 3)),
-          tooltip_text = paste0("Percentil: ", percentil_text, 
-                                "\nRiesgo: ", riesgo_text)
-        )
-      plot <- ggplot(riesgo_percentiles_datos, aes(x = percentil, y = riesgo)) +
-        geom_step(direction = "hv", color = "steelblue", size = 1) +  # línea sin text
-        geom_point(aes(text = tooltip_text), size = 1, color = "black") +  # puntos con tooltip
-        geom_vline(xintercept = percentil_riesgo-0.0001, linetype = "dashed", color = "red", size = 1) +
-        labs(
-          x = "Percentil riesgo fallecimiento muestra",
-          y = "Riesgo fallecimiento predicho",
-          title = "Riesgo predicho frente a su percentil en la población"
-        ) +
-        annotate("text", x = percentil_riesgo-0.05, y = 0.3,
-                 label = paste0("Percentil ", gsub("\\.", ",", formatC(percentil_riesgo*100, digits=2)), "%"), color = "red") +
+      valor_riesgo <- round(1 - base_surv_en_t, 4)
+      percentil_riesgo <- approx(x = risk_and_percentile_in_data$riesgo, y = risk_and_percentile_in_data$percentil, xout = valor_riesgo)$y
+      percentil_riesgo <- round(percentil_riesgo, 4)
+      
+      if (percentil_riesgo < 0.996)
+        percentil_riesgo <- risk_and_percentile_in_data$percentil[which(risk_and_percentile_in_data$percentil == percentil_riesgo) + 1]
+      else
+        percentil_riesgo <- 1
+      
+      plot <- ggplot(risk_and_percentile_in_data, aes(x = percentil, y = riesgo)) +
+        geom_step(direction = "hv", color = "steelblue", size = 1) +
+        geom_point(aes(text = paste0("Percentile: ", percentil, "\nRisk: ", riesgo)), size = 1, color = "black") +
+        geom_vline(xintercept = percentil_riesgo - 0.0001, linetype = "dashed", color = "red", size = 1) +
+        labs(x = "Sample death risk percentile", y = "Predicted death risk",
+             title = "Predicted risk vs. population percentile") +
+        annotate("text", x = percentil_riesgo - 0.05, y = 0.3,
+                 label = paste0("Percentile ", round(percentil_riesgo * 100, 2), "%"), color = "red") +
         scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
-        theme_minimal() +
+        theme_minimal()+
         theme(plot.title = element_text(hjust = 0.5, size=15, face = "bold"))
-      
-      
-      # Etiquetas personalizadas eje x (percentiles de 0 a 1, paso 0.1)
-      x_vals <- seq(0, 1, by = 0.1)
-      x_labels <- paste0(gsub("\\.", ",", format(x_vals * 100, trim = TRUE)), "%")
-      
-      # Etiquetas eje y (riesgo, de 0 a 1 con paso 0.05)
-      y_vals <- seq(0, 1, by = 0.05)
-      y_labels <- gsub("\\.", ",", format(y_vals, trim = TRUE))
       
       ggplotly(plot, tooltip = "text") %>%
         layout(
-          hovermode = "closes",
-          xaxis = list(
-            tickmode = "array",
-            tickvals = x_vals,
-            ticktext = x_labels
-          ),
-          yaxis = list(
-            tickmode = "array",
-            tickvals = y_vals,
-            ticktext = y_labels
-          )
-        ) %>%
+          hovermode = "closes"
+        )%>%
         config(
           modeBarButtonsToRemove = c(
             "zoom2d", "pan2d", "select2d", "lasso2d",
@@ -367,11 +254,9 @@ server <- function(input, output) {
           ),
           displaylogo = FALSE
         )
-      
-
     }
   })
 }
 
-# Run the application 
+# Run the Shiny app
 shinyApp(ui = ui, server = server)

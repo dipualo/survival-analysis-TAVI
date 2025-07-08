@@ -2,3 +2,5 @@
 .Rhistory
 .RData
 .Ruserdata
+.risk_and_percentile_in_data.rds
+.data.rds
